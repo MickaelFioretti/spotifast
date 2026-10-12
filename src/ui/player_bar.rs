@@ -533,7 +533,13 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         }
     }
     let mut responses = vec![cover_response, title_response];
+    let smart_row = app.smart_rows.contains(&now.uri);
     text_ui.horizontal_top(|ui| {
+        // The same sparkle the queue puts on a woven row, so the song
+        // playing is recognisable as a suggestion without opening the queue.
+        if smart_row {
+            super::widgets::smart_badge(ui, &palette);
+        }
         if now.artists.is_empty() {
             let response = theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary)
                 .interact(drag_sense);
@@ -699,7 +705,8 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     let enabled = now.is_some_and(|now| now.can_control) || app.is_connected();
     let playing = now.is_some_and(|now| now.playing);
     let loading = now.is_some_and(|now| now.loading);
-    let shuffle = now.map_or_else(|| app.playing_context_shuffle(), |now| now.shuffle);
+    let shuffle_mode = app.shuffle_mode_shown(now.map(|now| now.shuffle));
+    let shuffle = shuffle_mode.shuffles();
     let repeat = now.map(|now| now.repeat).unwrap_or_default();
     let dim = if enabled {
         palette.secondary
@@ -726,7 +733,11 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     let mut cell = centered(ui, slot(widths[0]));
     let shuffle_button = theme::icon_button(
         &mut cell,
-        Icon::Shuffle,
+        if shuffle_mode.is_smart() {
+            Icon::SmartShuffle
+        } else {
+            Icon::Shuffle
+        },
         17.0,
         shuffle_color,
         if shuffle {
@@ -734,7 +745,14 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         } else {
             palette.text
         },
-        &gettext(app.locale, "Shuffle"),
+        &gettext(
+            app.locale,
+            if shuffle_mode.is_smart() {
+                "Smart shuffle"
+            } else {
+                "Shuffle"
+            },
+        ),
     );
     shuffle_button.widget_info(|| {
         egui::WidgetInfo::selected(

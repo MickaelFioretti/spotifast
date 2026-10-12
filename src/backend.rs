@@ -848,6 +848,13 @@ pub enum Command {
         generation: u64,
         result: Result<crate::player::Rootlist, String>,
     },
+    /// Songs Spotify would continue a context with, for smart shuffle.
+    /// `seed_track` is a song from that context, used when the context has
+    /// no continuation of its own.
+    SmartShuffle {
+        context_uri: String,
+        seed_track: Option<String>,
+    },
     /// Check that a reconnect's pickup really started, and try again if not.
     VerifyResume,
     /// Add, replace, or remove the optional personal Web API application.
@@ -1048,6 +1055,11 @@ pub enum Event {
     /// playlists take songs from this account.
     Rootlist {
         result: Result<crate::player::Rootlist, String>,
+    },
+    /// Smart shuffle's recommendations for a context, or why there are none.
+    SmartShuffle {
+        context_uri: String,
+        result: Result<Vec<String>, String>,
     },
     /// The result of reading a playlist cache for this load generation.
     PlaylistCache {
@@ -2629,6 +2641,10 @@ impl Worker {
                 Command::RootlistFinished { generation, result } => {
                     self.on_rootlist_finished(generation, result);
                 }
+                Command::SmartShuffle {
+                    context_uri,
+                    seed_track,
+                } => self.fetch_smart_shuffle(context_uri, seed_track),
                 Command::VerifyResume => self.verify_resume(),
                 Command::LoadPlaylistCache { id, generation } => {
                     self.load_playlist_cache(id, generation)
@@ -4558,6 +4574,44 @@ impl Worker {
             result,
         });
         self.start_album_type_lookup();
+    }
+
+    /// Asks the playback engine what Spotify would follow this context with.
+    /// Without a local engine there is nothing to ask, so smart shuffle says
+    /// so rather than leaving the context waiting.
+    fn fetch_smart_shuffle(&self, context_uri: String, seed_track: Option<String>) {
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let Some(engine) = self.engine.clone() else {
+            let _ = events.send(Event::SmartShuffle {
+                context_uri,
+                result: Err("local playback is not running".to_owned()),
+            });
+            waker.wake();
+            return;
+        };
+        tokio::spawn(async move {
+            // Liked Songs, and other contexts Spotify keeps no continuation
+            // for, answer nothing here. A song from inside the context always
+            // has a station, so ask for that one instead of giving up.
+            let mut result = engine
+                .autoplay_tracks(&context_uri)
+                .await
+                .map_err(|error| format!("{error:#}"));
+            if (result.as_ref().is_ok_and(Vec::is_empty) || result.is_err())
+                && let Some(seed) = seed_track
+            {
+                log::info!("smart shuffle: no continuation for {context_uri}; seeding from {seed}");
+                if let Ok(tracks) = engine.autoplay_tracks(&seed).await {
+                    result = Ok(tracks);
+                }
+            }
+            let _ = events.send(Event::SmartShuffle {
+                context_uri,
+                result,
+            });
+            waker.wake();
+        });
     }
 
     fn fetch_lyrics(&self, request: LyricsRequest) {
