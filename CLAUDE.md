@@ -28,7 +28,10 @@ ci-dessous le complètent et **remplacent** ses sections *Branches*,
 
 ## Mise à jour depuis l'officiel
 
-1. `git fetch upstream`, puis fast-forward de `main` sur `upstream/main`.
+1. `git fetch upstream --no-tags`, puis fast-forward de `main` sur
+   `upstream/main`. Les tags de l'officiel portent les mêmes noms que ceux
+   du fork (`v0.13.0`) : n'en importer aucun, et ne jamais pousser avec
+   `--tags`.
 2. Branche de sauvegarde avant de réécrire :
    `git branch backup/fork-<version> fork`.
 3. `git rebase main` sur `fork`, puis sur chaque `feat/*` en cours.
