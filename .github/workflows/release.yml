@@ -225,7 +225,9 @@ jobs:
         with:
           files: dist/*
           name: Spotifast ${{ github.ref_name }}
-          body: Personal build with smart shuffle, on top of crmne/spotifast.
+          # The fork's own notes, beside upstream's without replacing them.
+          body_path: packaging/release-notes/fork-${{ github.ref_name }}.md
+          generate_release_notes: false
           # A tag with a suffix (v0.4.0-rc1) is a pre-release: it stays
           # off "latest", so the app's update check never offers it.
           prerelease: ${{ contains(github.ref_name, '-') }}
