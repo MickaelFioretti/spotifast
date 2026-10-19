@@ -45,8 +45,15 @@ ci-dessous le complètent et **remplacent** ses sections *Branches*,
 ## Vérification
 
 - Ce PC n'a pas de toolchain Rust : la compilation et les tests passent par
-  le CI du fork, `fork-ci.yml` (Windows x64 et Linux x64 seulement). Il se
-  lance seul à chaque push sur `fork`, `feat/**` et `update/**`.
+  le CI du fork, `fork-ci.yml`. Il se lance seul à chaque push sur `fork`,
+  `feat/**` et `update/**`.
+- Job `linux` à chaque push : policy, fmt, clippy, tests et rustdoc.
+- Job `windows` (Windows x64 complet, installeur et MSI compris) seulement
+  sur `update/**`, au lancement manuel (Actions → Fork CI → Run workflow)
+  et au tag : `release.yml` l'appelle et ne publie que s'il passe. Le
+  lancer à la main avant de taguer, et pour une `feat/*` qui touche du code
+  Windows (`cfg(windows)`, updater, installeur). Après un simple push d'une
+  `feat/*`, Windows n'est **pas** testé : ne jamais dire le contraire.
 - Le `ci.yml` de l'officiel reste tel quel dans le dépôt, pour ne pas créer
   de conflits au rebase, mais il est désactivé sur GitHub. macOS et
   Windows ARM ne sont donc plus compilés du tout.

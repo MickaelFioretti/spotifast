@@ -184,9 +184,18 @@ jobs:
             dist/*.AppImage.zsync
           if-no-files-found: error
 
+  # The fork's full CI, Windows x64 included, on the tagged commit. It runs
+  # beside the builds and only reads, so a failure holds the release
+  # without having published anything.
+  tests:
+    name: Fork CI
+    uses: ./.github/workflows/fork-ci.yml
+    permissions:
+      contents: read
+
   publish:
     name: GitHub release
-    needs: build
+    needs: [build, tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

@@ -1,13 +1,18 @@
-# The fork's own CI: the checks of ci.yml for the two platforms the fork
-# ships (Windows x64 and Linux x64), without macOS, Windows on ARM, Nix or
-# the documentation site. ci.yml stays as upstream wrote it so rebases do
-# not conflict on it; it is disabled on the fork's GitHub repository.
+# The fork's own CI, for the two platforms the fork ships. ci.yml stays as
+# upstream wrote it so rebases do not conflict on it; it is disabled on the
+# fork's GitHub repository.
+#
+# Every push runs the light Linux job. The Windows x64 job, the long one,
+# runs only where Windows breaks most or matters most: on update/** (an
+# upstream update changes many files at once), when started by hand, and
+# for a release, which calls this workflow and publishes only if it passes.
 name: Fork CI
 
 on:
   push:
     branches: [fork, 'feat/**', 'update/**']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -20,115 +25,96 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Dependencies come only from crates.io or from crmne repositories, and
-  # review evidence stays out of the tree. See CONTRIBUTING.md.
-  policy:
-    name: policy
+  # One job, so clippy and the tests share a single checkout, toolchain and
+  # cache instead of compiling twice.
+  linux:
+    name: linux
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      # Dependencies come only from crates.io or from crmne repositories,
+      # and review evidence stays out of the tree. See CONTRIBUTING.md.
       - name: Dependency sources
         run: python3 .github/scripts/check-dependency-sources.py
       - name: No review evidence in the tree
-        if: ${{ !cancelled() }}
         run: python3 .github/scripts/check-review-evidence.py
       - name: Policy check regressions
-        if: ${{ !cancelled() }}
         run: python3 .github/scripts/test-policy-checks.py
-
-  quality:
-    name: quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Formatting
+        run: cargo fmt --all --check
       - name: GUI build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libpulse-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev cmake libclang-dev ruby
-      # Only pushes to the default branch save the cache, so make fork the
-      # repository's default branch: feat/* and update/* branches then
-      # restore its warm cache and build on top without saving copies of
-      # their own, which would fill the ten-gigabyte limit.
-      - uses: jdx/mr-boxington-action@v1
-        with:
-          cache-generation: fork-quality-v1
-      - name: Formatting
-        run: cargo fmt --all --check
       - name: Linux launcher packaging regressions
         run: python3 packaging/test-launchers.py
       - name: Release name migration regressions
         run: python3 packaging/test-release-names.py
+      # Only pushes to the default branch save the cache, so fork is the
+      # repository's default branch: feat/* and update/* branches and
+      # release tags restore its warm cache and build on top without saving
+      # copies of their own, which would fill the ten-gigabyte limit.
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: fork-test-v1
+      # Clippy with default features keeps code behind optional features
+      # compiling without them; the tests then run once, with every feature.
+      # The demo feature carries the headless render test.
       - name: Clippy (default features)
         run: mbx clippy --locked --all-targets -- -D warnings
       - name: Clippy (all features)
         run: mbx clippy --locked --all-targets --all-features -- -D warnings
+      - name: Tests (all features)
+        run: mbx test --locked --all-targets --all-features
+      - name: Documentation tests
+        run: mbx test --locked --all-features --doc
       - name: Rustdoc
         env:
           RUSTDOCFLAGS: -D warnings
         run: mbx doc --locked --all-features --no-deps
 
-  test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  windows:
+    name: windows
+    # A release calls this workflow from its tag, so the tag counts here.
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      startsWith(github.ref, 'refs/heads/update/') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
     env:
       CMAKE_GENERATOR: Ninja
-    # A cold cache on Windows (projectM through cmake) needs about 30
-    # minutes; warm runs take far less.
+    # A cold cache (projectM through cmake) needs about 35 minutes; warm
+    # runs take far less.
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: GUI build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libpulse-dev libxkbcommon-dev \
-            libwayland-dev libgl1-mesa-dev cmake libclang-dev
       # libprojectM reads OpenGL through GLEW on Windows; projectm-sys builds
       # against vcpkg's static-CRT triplet, matching .cargo/config.toml.
       - name: GLEW for libprojectM
-        if: runner.os == 'Windows'
         run: vcpkg install glew:x64-windows-static
       # Ninja inside the MSVC environment, as in ci.yml: the runner image no
       # longer satisfies the Visual Studio generator projectm-sys asks for.
       - name: MSVC environment for libprojectM
-        if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: fork-test-v1
-      # Default features build and run on Linux only: Windows runs the
-      # all-features suite, which compiles the same code and more, so it
-      # does not pay for a second build. The demo feature carries the
-      # headless render test.
-      - name: Tests (default features)
-        if: runner.os == 'Linux'
-        run: mbx test --locked --all-targets
       - name: Tests (all features)
         run: mbx test --locked --all-targets --all-features
-      - name: Documentation tests
-        if: runner.os == 'Linux'
-        run: mbx test --locked --all-features --doc
       - name: Native credential store (dummy grants)
-        if: runner.os == 'Windows'
         timeout-minutes: 2
         run: mbx test --locked --lib credentials::tests::native_store_round_trip -- --ignored --exact
       # A build can pass while importing Microsoft's C++ runtime, then fail on
       # a clean user's machine. Inspect the executable CI actually produced.
       - name: Standalone Windows runtime
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           mbx build --locked
@@ -139,7 +125,6 @@ jobs:
           if ($headers -notmatch '8664 machine \(x64\)') { throw "spotifast.exe is not built for x64:`n$headers" }
 
       - name: Windows installer syntax and renamed inputs
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
@@ -152,11 +137,9 @@ jobs:
       # release does, then the install, update and uninstall checks that
       # cover the updater the fork points at its own releases.
       - uses: ruby/setup-ruby@v1
-        if: runner.os == 'Windows'
         with:
           ruby-version: '4.0'
       - name: Windows Installer package
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           dotnet tool install wix --version 5.0.2 --tool-path "$env:RUNNER_TEMP\wix"
@@ -172,7 +155,6 @@ jobs:
           native-packages build --version $version --target windows-amd64 --defer-recipes --output "$env:RUNNER_TEMP\spotifast-msi-check"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows Installer install, update and uninstall
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
