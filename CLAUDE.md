@@ -45,8 +45,13 @@ ci-dessous le complètent et **remplacent** ses sections *Branches*,
 ## Vérification
 
 - Ce PC n'a pas de toolchain Rust : la compilation et les tests passent par
-  le CI du fork. `ci.yml` ne se déclenche seul que sur `main`, il faut le
-  lancer à la main (Actions → CI → Run workflow) en choisissant la branche.
+  le CI du fork, `fork-ci.yml` (Windows x64 et Linux x64 seulement). Il se
+  lance seul à chaque push sur `fork`, `feat/**` et `update/**`.
+- Le `ci.yml` de l'officiel reste tel quel dans le dépôt, pour ne pas créer
+  de conflits au rebase, mais il est désactivé sur GitHub. macOS et
+  Windows ARM ne sont donc plus compilés du tout.
+- `fork` est la branche par défaut du dépôt GitHub : seuls ses pushs
+  enregistrent le cache, que les autres branches réutilisent.
 - Vérifier que le run teste bien le dernier commit poussé.
 - Ne jamais dire qu'une plateforme est testée si elle a seulement été
   compilée par le CI ou raisonnée.
