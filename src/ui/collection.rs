@@ -326,33 +326,7 @@ pub fn actions_row(
                     });
                 }
             }
-            let shuffle = app.playing_context_shuffle();
-            if theme::icon_button(
-                ui,
-                Icon::Shuffle,
-                26.0,
-                if shuffle {
-                    palette.accent
-                } else {
-                    palette.secondary
-                },
-                // Keep shuffle green under the pointer, or turning it on
-                // looks like nothing happened until the pointer leaves.
-                if shuffle {
-                    palette.accent_hover
-                } else {
-                    palette.text
-                },
-                &if shuffle {
-                    gettext(locale, "Shuffle off")
-                } else {
-                    gettext(locale, "Shuffle")
-                },
-            )
-            .clicked()
-            {
-                app.actions.push(Action::SetShuffle(!shuffle));
-            }
+            widgets::shuffle_button(ui, app, 26.0, palette.secondary);
         }
         if let Some((uri, saved)) = &actions.saved {
             // A saved button stays green under the pointer, like shuffle.
@@ -2583,7 +2557,7 @@ fn palette_of(app: &App) -> Palette {
 mod tests {
     use super::*;
     use crate::api::models::{Album, ArtistRef, Image, Track};
-    use crate::model::PlaylistPage;
+    use crate::model::{PlaylistPage, ShuffleMode};
 
     /// A 2x display: the hero asks for 640, a card for 300.
     const TEST_HERO_ART: HeroArt = HeroArt {
@@ -4413,10 +4387,88 @@ mod tests {
         ]);
 
         assert!(
-            matches!(app.actions.as_slice(), [Action::SetShuffle(true)]),
-            "shuffle must not start playback: {:?}",
+            matches!(app.actions.as_slice(), [Action::ToggleShuffle]),
+            "the header cycles shuffle like the player bar, without starting playback: {:?}",
             app.actions
         );
+    }
+
+    /// The header's shuffle button and the player bar's are one button:
+    /// from smart shuffle a press turns it off, and the next one turns on
+    /// plain shuffle rather than quietly bringing smart shuffle back.
+    #[test]
+    fn collection_shuffle_button_cycles_modes_like_the_player_bar() {
+        let ctx = egui::Context::default();
+        let mut app = test_app();
+        app.local_ready = true;
+        app.shuffle_wanted = true;
+        app.smart_wanted = true;
+        assert_eq!(app.shuffle_mode(), ShuffleMode::Smart);
+        let pos = egui::pos2(87.0, 28.0);
+        let press = |app: &mut App| {
+            for events in [
+                vec![],
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            ] {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(800.0, 600.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        actions_row(
+                            app,
+                            ui,
+                            Actions {
+                                play_uri: Some("spotify:playlist:test".into()),
+                                view: None,
+                                saved: None,
+                                saved_icons: (Icon::CirclePlus, Icon::CircleCheck),
+                                saved_tooltips: Default::default(),
+                                owned_playlist: None,
+                                reload: None,
+                                name: "Test",
+                                save_radio: None,
+                                plays_shown_rows: false,
+                            },
+                            None,
+                        );
+                    },
+                );
+                output.textures_delta.clear();
+            }
+            for action in std::mem::take(&mut app.actions) {
+                app.apply(action, &ctx);
+            }
+        };
+
+        press(&mut app);
+        assert_eq!(app.shuffle_mode(), ShuffleMode::Off, "smart, then off");
+        press(&mut app);
+        assert_eq!(
+            app.shuffle_mode(),
+            ShuffleMode::On,
+            "off, then plain shuffle, not smart again"
+        );
+        app.backend.shutdown();
     }
 
     #[test]

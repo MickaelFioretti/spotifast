@@ -125,31 +125,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
                 index: 0,
             });
         }
-        let shuffle = app.playing_context_shuffle();
-        if theme::icon_button(
-            ui,
-            Icon::Shuffle,
-            26.0,
-            if shuffle {
-                palette.accent
-            } else {
-                palette.secondary
-            },
-            if shuffle {
-                palette.accent_hover
-            } else {
-                palette.text
-            },
-            &if shuffle {
-                gettext(locale, "Shuffle off")
-            } else {
-                gettext(locale, "Shuffle")
-            },
-        )
-        .clicked()
-        {
-            app.actions.push(Action::SetShuffle(!shuffle));
-        }
+        widgets::shuffle_button(ui, app, 26.0, palette.secondary);
         theme::text(
             ui,
             songs_and_duration(locale, count, duration),

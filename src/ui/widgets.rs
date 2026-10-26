@@ -2270,6 +2270,52 @@ pub fn smart_badge(ui: &mut Ui, palette: &Palette) {
         .on_hover_text("Suggested by smart shuffle");
 }
 
+/// The shuffle button, wherever it is drawn. The transport and a page's
+/// header read the same mode and a press cycles it the same way, so the
+/// two never disagree. `off` tints the button while shuffle is off.
+pub fn shuffle_button(ui: &mut Ui, app: &mut App, size: f32, off: Color32) {
+    let palette = app.palette;
+    let reported = app.now_playing().map(|now| now.shuffle);
+    let mode = app.shuffle_mode_shown(reported);
+    let shuffle = mode.shuffles();
+    let response = theme::icon_button(
+        ui,
+        if mode.is_smart() {
+            Icon::SmartShuffle
+        } else {
+            Icon::Shuffle
+        },
+        size,
+        if shuffle { palette.accent } else { off },
+        // Keep shuffle green under the pointer, or turning it on looks
+        // like nothing happened until the pointer leaves.
+        if shuffle {
+            palette.accent_hover
+        } else {
+            palette.text
+        },
+        &gettext(
+            app.locale,
+            if mode.is_smart() {
+                "Smart shuffle"
+            } else {
+                "Shuffle"
+            },
+        ),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Checkbox,
+            ui.is_enabled(),
+            shuffle,
+            gettext(app.locale, "Shuffle"),
+        )
+    });
+    if response.clicked() {
+        app.actions.push(Action::ToggleShuffle);
+    }
+}
+
 pub fn explicit_badge(ui: &mut Ui, palette: &Palette) {
     let (rect, _) = ui.allocate_exact_size(vec2(15.0, 15.0), Sense::hover());
     ui.painter()

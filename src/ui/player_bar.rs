@@ -705,8 +705,6 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     let enabled = now.is_some_and(|now| now.can_control) || app.is_connected();
     let playing = now.is_some_and(|now| now.playing);
     let loading = now.is_some_and(|now| now.loading);
-    let shuffle_mode = app.shuffle_mode_shown(now.map(|now| now.shuffle));
-    let shuffle = shuffle_mode.shuffles();
     let repeat = now.map(|now| now.repeat).unwrap_or_default();
     let dim = if enabled {
         palette.secondary
@@ -729,42 +727,8 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         )
     };
 
-    let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
-    let shuffle_button = theme::icon_button(
-        &mut cell,
-        if shuffle_mode.is_smart() {
-            Icon::SmartShuffle
-        } else {
-            Icon::Shuffle
-        },
-        17.0,
-        shuffle_color,
-        if shuffle {
-            palette.accent_hover
-        } else {
-            palette.text
-        },
-        &gettext(
-            app.locale,
-            if shuffle_mode.is_smart() {
-                "Smart shuffle"
-            } else {
-                "Shuffle"
-            },
-        ),
-    );
-    shuffle_button.widget_info(|| {
-        egui::WidgetInfo::selected(
-            egui::WidgetType::Checkbox,
-            cell.is_enabled(),
-            shuffle,
-            gettext(app.locale, "Shuffle"),
-        )
-    });
-    if shuffle_button.clicked() {
-        app.actions.push(Action::ToggleShuffle);
-    }
+    super::widgets::shuffle_button(&mut cell, app, 17.0, dim);
 
     let mut cell = centered(ui, slot(widths[1]));
     if theme::icon_button(
