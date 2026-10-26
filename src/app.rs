@@ -9170,9 +9170,23 @@ impl App {
         let (capped, index) = cap_uris(&order, 0);
         self.local_list = Some(order);
         let order = capped;
+        // The woven order is a plain list of songs with no context of its
+        // own. Keep the one it was asked from, or that page's Play button
+        // never turns to Pause.
+        let shown = self
+            .assumed_context
+            .as_ref()
+            .map(|assumed| assumed.uri.clone());
         self.smart_playing = true;
         self.play_request(PlayRequest::tracks(order).starting_at_index(index), false);
         self.smart_playing = false;
+        if let Some(uri) = shown {
+            self.assumed_context = Some(AssumedContext {
+                uri,
+                shuffle: Some(true),
+                at: Instant::now(),
+            });
+        }
     }
 
     /// With `shuffle_first`, shuffle is turned on before playback starts,
@@ -9269,6 +9283,13 @@ impl App {
                 self.smart_tracks = uris;
                 self.smart_pending = Some(ask.clone());
                 self.smart_rows.clear();
+                // Show the context as playing at once, as any other play
+                // does: the woven order keeps it once it starts.
+                self.assumed_context = Some(AssumedContext {
+                    uri: request.context_uri.clone().unwrap_or_default(),
+                    shuffle: Some(true),
+                    at: Instant::now(),
+                });
                 self.backend.send(Command::SmartShuffle {
                     context_uri: ask,
                     seed_track: seed,
@@ -32536,6 +32557,58 @@ mod tests {
             "suggestions were asked for before the list started"
         );
         assert_eq!(app.smart_tracks.len(), 8, "the list is held for weaving");
+    }
+
+    /// The woven order plays as a plain list of songs, with no context of
+    /// its own. The album or playlist it was asked from must still show as
+    /// playing, or its page's Play button never turns to Pause.
+    #[test]
+    fn a_smart_shuffled_context_still_shows_as_playing() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.apply(Action::ToggleShuffle, &ctx);
+        app.apply(Action::ToggleShuffle, &ctx);
+        assert_eq!(app.shuffle_mode(), ShuffleMode::Smart);
+        app.album_pages.insert(
+            "album".into(),
+            AlbumPage {
+                tracks: PagedList {
+                    items: ["intro", "second", "third"]
+                        .into_iter()
+                        .map(album_queue_track)
+                        .collect(),
+                    loaded_once: true,
+                    next_offset: None,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        app.apply(
+            Action::PlayContext {
+                uri: "spotify:album:album".into(),
+                offset_uri: None,
+                offset_index: None,
+            },
+            &ctx,
+        );
+        assert_eq!(app.smart_pending.as_deref(), Some("spotify:album:album"));
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some("spotify:album:album"),
+            "the album shows as playing while suggestions are asked for"
+        );
+
+        app.on_smart_shuffle(
+            "spotify:album:album".into(),
+            Ok(vec!["spotify:track:r1".into()]),
+        );
+        assert!(app.local_list.is_some(), "the woven order started");
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some("spotify:album:album"),
+            "the woven order still shows the album as playing"
+        );
     }
 
     /// Starting the woven order must not ask for suggestions about itself.
